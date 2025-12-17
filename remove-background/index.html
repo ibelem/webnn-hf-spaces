@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Transformers.js - Background Removal</title>
-    <script type="module" crossorigin src="./assets/index-B-JpncJI.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-PZ58GEkw.css">
+    <script type="module" crossorigin src="./assets/index-BqalD_uN.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-PenTddJ7.css">
   </head>
 
   <body>
@@ -15,10 +15,10 @@
     <h4>
       Runs locally in your browser, powered by the
       <a href="https://huggingface.co/briaai/RMBG-1.4" target="_blank"
-        >RMBG V1.4 model</a
+        >RMBG v1.4</a
       >
-      from <a href="https://bria.ai/" target="_blank">BRIA AI</a> using <a href="https://github.com/huggingface/transformers.js" target="_blank"
-        >🤗 Transformers.js</a
+      using <a href="https://github.com/huggingface/transformers.js" target="_blank"
+        >Transformers.js</a
       >
     </h4>
     <div id="container">
@@ -38,6 +38,9 @@
         Click to upload image
         <label id="example">(or try example)</label>
       </label>
+    </div>
+    <div class="device-links">
+      <a href="?device=webgpu">WebGPU</a> · <a href="?device=webnn-gpu">WebNN GPU</a> · <a href="?device=webnn-npu">WebNN NPU</a>
     </div>
     <label id="status"></label>
     <input id="upload" type="file" accept="image/*" />
