@@ -1,6 +1,7 @@
-import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/ort.all.min.js";
-ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/";
+import * as ort from "onnxruntime-web/webgpu";
+ort.env.wasm.wasmPaths = "/onnxruntime/";
 import { getHuggingFaceDomain } from "./utils.js";
+import * as ui from "./ui.js";
 
 import { 
     loadImage, 
@@ -8,13 +9,21 @@ import {
     postprocessDetection, 
     splitIntoLineImages, 
     preprocessRecognition, 
-    decodeText 
+    decodeText,
+    drawBoxes
 } from "./ocr-processing.js";
 
 // Configuration
 const hfDomain = await getHuggingFaceDomain();
-const urlParams = new URLSearchParams(window.location.search);
-const modelVersion = urlParams.get("model") || "0"; // 0 for v4, 1 for v5
+
+// Handle URL Params
+const params = ui.handleUrlParams();
+if (!params) {
+    // Redirecting...
+    throw new Error("Redirecting...");
+}
+
+const { modelVersion, device: currentBackend, image: imageParam } = params;
 
 let baseUrl, MODELS;
 
@@ -35,17 +44,13 @@ if (modelVersion === "1") {
         dic: `${baseUrl}/ch_PP-OCR_keys_v1.txt`
     };
 }
+
 // State
 let detSession = null;
 let recSession = null;
 let dictionary = [];
-let detCompilationTime = null;
-let detInferenceTime = null;
-let recCompilationTime = null;
-let recInferenceTime = null;
 let totalRecInferenceTime = null;
 
-let currentBackend = urlParams.get("device") || "wasm";
 let currentBackendLabel = "";
 if (currentBackend === "wasm") {
     currentBackendLabel = "Wasm";
@@ -58,54 +63,48 @@ if (currentBackend === "wasm") {
     currentBackendLabel = currentBackend;
 }
 
-// UI Elements
-const statusEl = document.getElementById("status");
-const backendDisplay = document.getElementById("backend-display");
-const fileInput = document.getElementById("upload");
-const resultContainer = document.getElementById("result-container");
-const canvasOverlay = document.getElementById("canvas-overlay");
-const imagePreview = document.getElementById("image-preview");
-const detCompilationEl = document.getElementById("detCom");
-const detInferenceEl = document.getElementById("detInf");
-const recCompilationEl = document.getElementById("recCom");
-const recInferenceEl = document.getElementById("recInf");
-const backendEl = document.getElementById("backend");
-
 // Initialize
 async function init() {
-    statusEl.textContent = "Loading OpenCV...";
+    ui.updateStatus("Loading OpenCV...");
     // Wait for OpenCV
     while (typeof cv === "undefined") {
         await new Promise(r => setTimeout(r, 100));
     }
-    statusEl.textContent = "OpenCV Loaded. Loading Dictionary...";
+    ui.updateStatus("OpenCV Loaded. Loading Dictionary...");
     
     // Load Dictionary
     const response = await fetch(MODELS.dic);
     const text = await response.text();
     dictionary = text.split("\n");
-    // Add space at the end if needed, or handle it in decode
     dictionary.push(" "); 
     
-    backendDisplay.textContent = currentBackendLabel;
-    backendEl.textContent = ` · ${currentBackendLabel}`;
-    statusEl.textContent = "Ready. Upload image.";
+    ui.updateBackendDisplay(currentBackendLabel);
     
-    // File Upload
-    fileInput.addEventListener("change", async (e) => {
-        if (e.target.files.length > 0) {
-            const file = e.target.files[0];
+    const shouldAutoRun = imageParam && params.hasModelParam && params.hasDeviceParam;
+
+    if (shouldAutoRun) {
+        ui.updateStatus("Ready. Processing URL image...");
+    } else {
+        ui.updateStatus("Ready. Upload image.");
+    }
+    
+    ui.setupUI({
+        onUpload: async (file) => {
             await runOCR(file);
-        }
+        },
+        onExampleClick: async () => {
+            await runOCR("https://ibelem.github.io/webnn-hf-spaces/on-device-ocr/assets/invoice.jpg");
+        },
+        onModelChange: (newVersion) => {
+            const url = new URL(window.location.href);
+            url.searchParams.set("model", newVersion);
+            window.location.href = url.toString();
+        },
+        modelVersion: modelVersion
     });
 
-    // Example Link
-    const exampleLink = document.getElementById("example-link");
-    if (exampleLink) {
-        exampleLink.addEventListener("click", async (e) => {
-            e.preventDefault();
-            await runOCR("https://ibelem.github.io/webnn-hf-spaces/on-device-ocr/assets/invoice.jpg");
-        });
+    if (shouldAutoRun) {
+        await runOCR(imageParam);
     }
 }
 
@@ -113,7 +112,7 @@ async function getSession(type) {
     if (type === "det" && detSession) return detSession;
     if (type === "rec" && recSession) return recSession;
     
-    statusEl.textContent = `Loading ${type} model (${currentBackend})...`;
+    ui.updateStatus(`Loading ${type} model (${currentBackend})...`);
     
     const options = {
         executionProviders: [currentBackend]
@@ -147,12 +146,10 @@ async function getSession(type) {
     const compilationTime = endTime - startTime;
     
     if (type === "det") {
-        detCompilationTime = compilationTime;
-        detCompilationEl.textContent = `${detCompilationTime.toFixed(2)}`;
+        ui.updatePerformance("detCom", compilationTime);
         console.log(`Detection model compilation time: ${compilationTime.toFixed(2)}ms`);
     } else {
-        recCompilationTime = compilationTime;
-        recCompilationEl.textContent = `${recCompilationTime.toFixed(2)}`;
+        ui.updatePerformance("recCom", compilationTime);
         console.log(`Recognition model compilation time: ${compilationTime.toFixed(2)}ms`);
     }
     
@@ -164,18 +161,17 @@ async function getSession(type) {
 
 async function runOCR(file) {
     try {
-        statusEl.textContent = "Processing image...";
-        resultContainer.innerHTML = "";
+        ui.updateStatus("Processing image...");
+        ui.clearResults();
         
         // Load Image
         const image = await loadImage(file);
-        imagePreview.src = image.src;
-        imagePreview.style.display = "block";
+        ui.showImage(image.src);
         
         // 1. Detection
         const detSess = await getSession("det");
         
-        statusEl.textContent = "Running Detection...";
+        ui.updateStatus("Running Detection...");
         
         const { tensor: detInput, width: detW, height: detH, originalWidth, originalHeight, imageData } = preprocessDetection(image);
         const detFeeds = {};
@@ -184,42 +180,27 @@ async function runOCR(file) {
         const detStart = performance.now();
         const detOutput = await detSess.run(detFeeds);
         const detEnd = performance.now();
-        detInferenceTime = detEnd - detStart;
-        detInferenceEl.textContent = `${detInferenceTime.toFixed(2)}`;
+        const detInferenceTime = detEnd - detStart;
+        ui.updatePerformance("detInf", detInferenceTime);
         console.log(`Detection inference time: ${detInferenceTime.toFixed(2)}ms`);
         const detResult = detOutput[detSess.outputNames[0]];
         const maskImageData = postprocessDetection(detResult, detW, detH);
         
         
         // 2. Split into lines
-        statusEl.textContent = "Splitting lines...";
+        ui.updateStatus("Splitting lines...");
         
         const lineImages = splitIntoLineImages(maskImageData, image);
         
         // Draw boxes on overlay
-        canvasOverlay.width = originalWidth;
-        canvasOverlay.height = originalHeight;
-        const ctx = canvasOverlay.getContext("2d");
-        ctx.clearRect(0, 0, originalWidth, originalHeight);
-        ctx.strokeStyle = "red";
-        ctx.lineWidth = 2;
-        
-        lineImages.forEach(line => {
-            const box = line.box; // TL, TR, BR, BL
-            ctx.beginPath();
-            ctx.moveTo(box[0].x, box[0].y);
-            ctx.lineTo(box[1].x, box[1].y);
-            ctx.lineTo(box[2].x, box[2].y);
-            ctx.lineTo(box[3].x, box[3].y);
-            ctx.closePath();
-            ctx.stroke();
-        });
+        drawBoxes(ui.elements.canvasOverlay, originalWidth, originalHeight, lineImages);
         
         // 3. Recognition
-        statusEl.textContent = "Running Recognition...";
+        ui.updateStatus("Running Recognition...");
         const recSess = await getSession("rec");
         
         let fullText = "";
+        totalRecInferenceTime = 0;
         
         for (let i = 0; i < lineImages.length; i++) {
             const line = lineImages[i];
@@ -231,20 +212,16 @@ async function runOCR(file) {
             const recStart = performance.now();
             const recOutput = await recSess.run(recFeeds);
             const recEnd = performance.now();
-            recInferenceTime = recEnd - recStart;
+            const recInferenceTime = recEnd - recStart;
             console.log(`Recognition inference time (line ${i + 1}): ${recInferenceTime.toFixed(2)}ms`);
-            totalRecInferenceTime = (totalRecInferenceTime || 0) + recInferenceTime;
+            totalRecInferenceTime += recInferenceTime;
             const recResult = recOutput[recSess.outputNames[0]];
             
             const { text, meanProb } = decodeText(recResult, dictionary);
             
             if (meanProb > 0.3) { // Confidence threshold
                 fullText += text + "\n";
-                
-                // Display result
-                const p = document.createElement("p");
-                p.textContent = `[${meanProb.toFixed(2)}] ${text}`;
-                resultContainer.appendChild(p);
+                ui.addResult(text, meanProb);
             } else {
                 console.log(`Low confidence line skipped: "${text}" (${meanProb.toFixed(2)})`);
             }
@@ -253,14 +230,14 @@ async function runOCR(file) {
             line.mat.delete();
         }
 
-        recInferenceEl.textContent = `${totalRecInferenceTime.toFixed(2)}`;
+        ui.updatePerformance("recInf", totalRecInferenceTime);
         
-        statusEl.textContent = `${currentBackendLabel} OCR complete.`;
+        ui.updateStatus(`${currentBackendLabel} OCR complete.`);
         console.log("OCR Result:\n", fullText);
         
     } catch (e) {
         console.error(e);
-        statusEl.textContent = `Error: ${e.message}`;
+        ui.updateStatus(`Error: ${e.message}`);
     }
 }
 

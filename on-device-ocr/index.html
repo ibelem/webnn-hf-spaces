@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>On-Device OCR (WebNN)</title>
     <script src="https://docs.opencv.org/4.8.0/opencv.js" async></script>
-    <script type="module" crossorigin src="./assets/index-X6gTTboA.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BOYqtqLF.css">
+    <script type="module" crossorigin src="./assets/index-BeQEu_NE.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DDBj5BAm.css">
   </head>
 
   <body>
@@ -43,7 +43,7 @@
                 </div>
             </div>
             <div id="model-versions">
-                <label><input type="radio" name="model-version" value="0">PP-OCR v4</label>
+                <label><input type="radio" name="model-version" value="0" checked>PP-OCR v4</label>
                 <label><input type="radio" name="model-version" value="1">PP-OCR v5</label>
             </div>
             <div id="status">Initializing...</div>
@@ -51,7 +51,7 @@
             
         <div id="performance">
             <div>
-                <div class="model">Model <span id="backend"></span></div>
+                <div class="model"><span id="model">Model</span> <span id="backend"></span></div>
                 <div class="detection">Compilation (ms)</div>
                 <div class="detection">Inference (ms)</div>
             </div>

@@ -1,5 +1,5 @@
-import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/ort.all.min.js";
-ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/";
+import * as ort from "onnxruntime-web/webgpu";
+ort.env.wasm.wasmPaths = "/onnxruntime/";
 
 // Helper to load image from URL or File
 export async function loadImage(src) {
@@ -397,4 +397,28 @@ export function decodeText(output, dictionary) {
     }
     
     return { text, meanProb };
+}
+
+
+// Draw bounding boxes on canvas
+export function drawBoxes(canvas, width, height, boxes) {
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, width, height);
+    
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'red';
+    
+    boxes.forEach(line => {
+        // box is [TL, TR, BR, BL]
+        const box = line.box;
+        ctx.beginPath();
+        ctx.moveTo(box[0].x, box[0].y);
+        ctx.lineTo(box[1].x, box[1].y);
+        ctx.lineTo(box[2].x, box[2].y);
+        ctx.lineTo(box[3].x, box[3].y);
+        ctx.closePath();
+        ctx.stroke();
+    });
 }

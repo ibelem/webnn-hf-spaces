@@ -60,7 +60,7 @@ a:hover, #example-link:hover {
   justify-content: center;
 }
 
-#backend-display {
+#backend-display, #model, #backend {
   color: rgba(255, 0, 129, 1);
 }
 
