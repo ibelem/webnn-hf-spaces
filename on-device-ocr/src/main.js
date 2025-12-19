@@ -1,5 +1,5 @@
-import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/esm/ort.webgpu.min.js";
-ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
+import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/ort.all.min.js";
+ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/";
 import { getHuggingFaceDomain } from "./utils.js";
 
 import { 
@@ -35,7 +35,6 @@ if (modelVersion === "1") {
         dic: `${baseUrl}/ch_PP-OCR_keys_v1.txt`
     };
 }
-
 // State
 let detSession = null;
 let recSession = null;
@@ -46,7 +45,6 @@ let recCompilationTime = null;
 let recInferenceTime = null;
 let totalRecInferenceTime = null;
 
-// urlParams already declared above
 let currentBackend = urlParams.get("device") || "wasm";
 let currentBackendLabel = "";
 if (currentBackend === "wasm") {
@@ -106,21 +104,7 @@ async function init() {
     if (exampleLink) {
         exampleLink.addEventListener("click", async (e) => {
             e.preventDefault();
-            await runOCR("img/invoice.jpg");
-        });
-    }
-
-    // Model Version Selection
-    const modelRadios = document.getElementsByName("model-version");
-    for (const radio of modelRadios) {
-        if (radio.value === modelVersion) {
-            radio.checked = true;
-        }
-        radio.addEventListener("change", (e) => {
-            const newVersion = e.target.value;
-            const url = new URL(window.location);
-            url.searchParams.set("model", newVersion);
-            window.location.href = url.toString();
+            await runOCR("https://ibelem.github.io/webnn-hf-spaces/on-device-ocr/assets/invoice.jpg");
         });
     }
 }
