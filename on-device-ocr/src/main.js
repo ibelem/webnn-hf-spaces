@@ -13,6 +13,8 @@ import {
     drawBoxes
 } from "./ocr-processing.js";
 
+ort.env.logLevel = "verbose";
+
 // Configuration
 const hfDomain = await getHuggingFaceDomain();
 
@@ -117,6 +119,9 @@ async function getSession(type) {
     const options = {
         executionProviders: [currentBackend]
     };
+
+    options.logSeverityLevel = 0;
+    options.logVerbosityLevel = 0;
     
     if (currentBackend.startsWith("webnn")) {
         const deviceType = currentBackend.includes("-") ? currentBackend.split("-")[1] : "gpu";
