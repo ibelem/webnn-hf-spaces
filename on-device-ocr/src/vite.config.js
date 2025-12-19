@@ -7,7 +7,7 @@ export default defineConfig({
       targets: [
         {
           src: 'node_modules/onnxruntime-web/dist/*.{wasm,mjs}',
-          dest: 'onnxruntime' // Copies to <output dir>/onnxruntime
+          dest: 'onnxruntime-web-1-23-2-dists' // Copies to <output dir>/onnxruntime
         }
       ]
     })

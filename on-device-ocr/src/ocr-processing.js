@@ -1,5 +1,5 @@
 import * as ort from "onnxruntime-web/webgpu";
-ort.env.wasm.wasmPaths = "/onnxruntime/";
+ort.env.wasm.wasmPaths = "/onnxruntime-web-1-23-2-dists/";
 
 // Helper to load image from URL or File
 export async function loadImage(src) {
