@@ -422,3 +422,55 @@ export function drawBoxes(canvas, width, height, boxes) {
         ctx.stroke();
     });
 }
+
+
+export function groupLines(results) {
+    if (results.length === 0) return [];
+
+    function calculateAverageHeight(results) {
+        let totalHeight = 0;
+        for (const res of results) {
+            const box = res.box; 
+            const h = Math.abs(box[2].y - box[0].y);
+            totalHeight += h;
+        }
+        return totalHeight / results.length;
+    }
+
+    const averageHeight = calculateAverageHeight(results);
+    const groups = [];
+
+    for (const res of results) {
+        const box = res.box;
+        const midline = (box[0].y + box[2].y) / 2;
+        
+        const group = groups.find(g => {
+            const gBox = g[0].box;
+            const gMidline = (gBox[0].y + gBox[2].y) / 2;
+            return Math.abs(gMidline - midline) < averageHeight / 2;
+        });
+        
+        if (group) {
+            group.push(res);
+        } else {
+            groups.push([res]);
+        }
+    }
+
+    for (const group of groups) {
+        group.sort((a, b) => a.box[0].x - b.box[0].x);
+    }
+
+    groups.sort((a, b) => a[0].box[0].y - b[0].box[0].y);
+
+    return groups.map(group => {
+        const texts = group.map(item => item.text);
+        const means = group.map(item => item.mean);
+        const mean = means.reduce((a, b) => a + b, 0) / means.length;
+        
+        return {
+            text: texts.join(" "),
+            mean: mean
+        };
+    });
+}

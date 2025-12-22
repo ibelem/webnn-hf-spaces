@@ -10,7 +10,8 @@ import {
     splitIntoLineImages, 
     preprocessRecognition, 
     decodeText,
-    drawBoxes
+    drawBoxes,
+    groupLines
 } from "./ocr-processing.js";
 
 ort.env.logLevel = "verbose";
@@ -207,6 +208,7 @@ async function runOCR(file) {
         let fullText = "";
         totalRecInferenceTime = 0;
         
+        const results = [];
         for (let i = 0; i < lineImages.length; i++) {
             const line = lineImages[i];
             const recInput = preprocessRecognition(line.mat);
@@ -225,8 +227,11 @@ async function runOCR(file) {
             const { text, meanProb } = decodeText(recResult, dictionary);
             
             if (meanProb > 0.3) { // Confidence threshold
-                fullText += text + "\n";
-                ui.addResult(text, meanProb);
+                results.push({
+                    text: text,
+                    mean: meanProb,
+                    box: line.box
+                });
             } else {
                 console.log(`Low confidence line skipped: "${text}" (${meanProb.toFixed(2)})`);
             }
@@ -234,6 +239,12 @@ async function runOCR(file) {
             // Clean up Mat
             line.mat.delete();
         }
+
+        const groupedResults = groupLines(results);
+        groupedResults.forEach(res => {
+            fullText += res.text + "\n";
+            ui.addResult(res.text, res.mean);
+        });
 
         ui.updatePerformance("recInf", totalRecInferenceTime);
         
