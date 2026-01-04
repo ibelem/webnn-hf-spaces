@@ -209,6 +209,8 @@ async function runOCR(file) {
         totalRecInferenceTime = 0;
         
         const results = [];
+        let acceptedCount = 0;
+        let skippedCount = 0;
         for (let i = 0; i < lineImages.length; i++) {
             const line = lineImages[i];
             const recInput = preprocessRecognition(line.mat);
@@ -226,8 +228,10 @@ async function runOCR(file) {
             
             const { text, meanProb } = decodeText(recResult, dictionary);
             
-            // Debug: threshold lowered to see raw values
-            if (meanProb > -100) { 
+            // meanProb is a mean logit (reference-style), not a probability.
+            // Reference filters around mean >= 0.5.
+            if (text !== "" && meanProb >= 0.5) {
+                acceptedCount++;
                 results.push({
                     text: text,
                     mean: meanProb,
@@ -235,12 +239,15 @@ async function runOCR(file) {
                 });
                 console.log(`[line ${line.id}]: [${meanProb.toFixed(4)}] ${text}`);
             } else {
+                skippedCount++;
                 console.log(`[line ${line.id}] Low confidence line skipped: "${text}" (${meanProb.toFixed(4)})`);
             }
             
             // Clean up Mat
             line.mat.delete();
         }
+
+        console.log(`[rec summary] total=${lineImages.length} accepted(mean>=0.5)=${acceptedCount} skipped=${skippedCount}`);
 
         const groupedResults = groupLines(results);
         groupedResults.forEach(res => {

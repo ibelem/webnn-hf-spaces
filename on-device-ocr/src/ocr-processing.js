@@ -53,11 +53,10 @@ export function preprocessDetection(image, maxSize = 960) {
     
     // Normalize: reference uses defaults mean=[0,0,0], std=[1,1,1] -> just scale to 0-1.
     const R = [], G = [], B = [];
-    // Normalize to -1 to 1 (reference uses mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     for (let i = 0; i < data.length; i += 4) {
-        R.push((data[i] / 255 - 0.5) / 0.5);
-        G.push((data[i + 1] / 255 - 0.5) / 0.5);
-        B.push((data[i + 2] / 255 - 0.5) / 0.5);
+        R.push(data[i] / 255);
+        G.push(data[i + 1] / 255);
+        B.push(data[i + 2] / 255);
     }
 
     const inputTensor = new ort.Tensor('float32', Float32Array.from([...B, ...G, ...R]), [1, 3, newHeight, newWidth]);
@@ -279,11 +278,10 @@ export function preprocessRecognition(mat) {
     const data = resized.data; // RGBA
     const R = [], G = [], B = [];
     
-    // Normalize to -1 to 1 (reference uses mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     for (let i = 0; i < data.length; i += 4) {
-        R.push((data[i] / 255 - 0.5) / 0.5);
-        G.push((data[i + 1] / 255 - 0.5) / 0.5);
-        B.push((data[i + 2] / 255 - 0.5) / 0.5);
+        R.push(data[i] / 255);
+        G.push(data[i + 1] / 255);
+        B.push(data[i + 2] / 255);
     }
     
     resized.delete();
@@ -327,35 +325,23 @@ export function decodeText(output, dictionary) {
     const charIndices = [];
     const probs = [];
     
+    // Reference implementation uses raw max logit per timestep (no softmax).
+    // That means meanProb is a mean logit, not a 0-1 probability.
     for (let i = 0; i < seq; i++) {
         const offset = i * classes;
-        
-        // Apply Softmax to get probabilities
-        let maxLogit = -Infinity;
-        for (let j = 0; j < classes; j++) {
-            if (data[offset + j] > maxLogit) maxLogit = data[offset + j];
-        }
 
-        let sum = 0;
-        const exps = new Float32Array(classes);
+        let maxVal = -Infinity;
+        let maxIdx = 0;
         for (let j = 0; j < classes; j++) {
-            const val = Math.exp(data[offset + j] - maxLogit);
-            exps[j] = val;
-            sum += val;
-        }
-
-        let maxProb = -1;
-        let maxIdx = -1;
-        for (let j = 0; j < classes; j++) {
-            const prob = exps[j] / sum;
-            if (prob > maxProb) {
-                maxProb = prob;
+            const v = data[offset + j];
+            if (v > maxVal) {
+                maxVal = v;
                 maxIdx = j;
             }
         }
 
         charIndices.push(maxIdx);
-        probs.push(maxProb);
+        probs.push(maxVal);
     }
     
     // CTC Decode (Greedy)
