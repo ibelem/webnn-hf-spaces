@@ -63,7 +63,8 @@ export function clearResults() {
 export function addResult(text, prob) {
     if (!elements.resultContainer) return;
     const p = document.createElement("p");
-    p.textContent = `[${prob.toFixed(2)}] ${text}`;
+    // p.textContent = `[${prob.toFixed(2)}] ${text}`;
+    p.textContent = `${text}`;
     elements.resultContainer.appendChild(p);
 }
 

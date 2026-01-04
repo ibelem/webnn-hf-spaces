@@ -237,8 +237,11 @@ export function splitIntoLineImages(maskImageData, originalImage) {
     hierarchy.delete();
     srcMat.delete();
     
-    // Sort line images top to bottom
+    // Sort line images top to bottom and reindex ids so they are contiguous
     lineImages.sort((a, b) => a.box[0].y - b.box[0].y);
+    lineImages.forEach((line, idx) => {
+        line.id = idx;
+    });
     
     return lineImages;
 }
