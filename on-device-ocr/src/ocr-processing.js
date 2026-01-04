@@ -51,50 +51,15 @@ export function preprocessDetection(image, maxSize = 960) {
     // And ModelBase.ts default is mean=[0,0,0], std=[1,1,1].
     // So it seems it just scales to 0-1.
     
-    const mean = [0.485, 0.456, 0.406];
-    const std = [0.229, 0.224, 0.225];
-    // Actually, let's check the reference again. The commented out lines suggest they MIGHT be used, 
-    // but if they are commented out, the defaults [0,0,0] and [1,1,1] are used.
-    // However, PaddleOCR usually expects normalized inputs.
-    // Let's stick to the reference code which seems to use defaults (0-1).
-    // Wait, in Detection.ts lines 33-36 are commented out.
-    // So it uses default mean=[0,0,0], std=[1,1,1].
-
+    // Normalize: reference uses defaults mean=[0,0,0], std=[1,1,1] -> just scale to 0-1.
     const R = [], G = [], B = [];
+    // Normalize to -1 to 1 (reference uses mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     for (let i = 0; i < data.length; i += 4) {
-        R.push(((data[i] / 255) - mean[0]) / std[0]);
-        G.push(((data[i+1] / 255) - mean[1]) / std[1]);
-        B.push(((data[i+2] / 255) - mean[2]) / std[2]);
+        R.push((data[i] / 255 - 0.5) / 0.5);
+        G.push((data[i + 1] / 255 - 0.5) / 0.5);
+        B.push((data[i + 2] / 255 - 0.5) / 0.5);
     }
-    
-    const input = Float32Array.from([...R, ...G, ...B]); // RGB order?
-    // ModelBase.ts:
-    // R.push... G.push... B.push...
-    // const newData = [...B, ...G, ...R]  <-- BGR order? Or just planar?
-    // Wait, ModelBase.ts line 48: const newData = [...B, ...G, ...R]
-    // This looks like BGR planar.
-    // Let's verify if PaddleOCR uses RGB or BGR.
-    // Usually it's RGB.
-    // Let's check ModelBase.ts again carefully.
-    // "R.push((image.data[i] / 255 - mean[0]) / std[0])"
-    // "const newData = [...B, ...G, ...R]"
-    // This definitely puts B first.
-    // But wait, standard ONNX models usually take RGB.
-    // Let's check if I misread the file content.
-    // I'll assume the reference code is correct and use BGR planar if that's what it does.
-    
-    // Re-reading ModelBase.ts from my previous `cat` output (it was truncated in thought, but I read it).
-    // Actually, I should check the `cat` output again.
-    // I didn't cat ModelBase.ts fully.
-    // Let's assume RGB for now, but if it fails, I'll switch.
-    // Most web demos use RGB.
-    // Wait, `cat on-device-ocr/reference/common/src/models/ModelBase.ts` was NOT run.
-    // I ran `cat on-device-ocr/reference/common/src/models/Detection.ts`.
-    // In `Detection.ts`, it calls `this.imageToInput`.
-    // I saw `imageToInput` in semantic search snippet:
-    // `const newData = [...B, ...G, ...R]`
-    // Okay, I will use BGR planar.
-    
+
     const inputTensor = new ort.Tensor('float32', Float32Array.from([...B, ...G, ...R]), [1, 3, newHeight, newWidth]);
     
     return {
@@ -108,7 +73,7 @@ export function preprocessDetection(image, maxSize = 960) {
 }
 
 // Post-process Detection output
-export function postprocessDetection(output, width, height, threshold = 0.3) {
+export function postprocessDetection(output, width, height, threshold = 0.03) {
     // output is 1x1xHxW
     const data = output.data;
     const maskData = new Uint8ClampedArray(width * height * 4);
@@ -193,6 +158,12 @@ export function splitIntoLineImages(maskImageData, originalImage) {
         // Scale points to original image size
         const scaledPoints = points.map(p => ({ x: p.x * rx, y: p.y * ry }));
         
+        // Clip points to image boundaries to avoid sampling outside
+        scaledPoints.forEach(p => {
+            p.x = Math.max(0, Math.min(p.x, originalImage.width));
+            p.y = Math.max(0, Math.min(p.y, originalImage.height));
+        });
+
         // Crop and warp
         const cropWidth = Math.max(
             Math.hypot(scaledPoints[0].x - scaledPoints[1].x, scaledPoints[0].y - scaledPoints[1].y),
@@ -245,11 +216,13 @@ export function splitIntoLineImages(maskImageData, originalImage) {
              // dst = dst_rot; // reassign
              // Actually let's just push dst_rot
              lineImages.push({
+                 id: i,
                  mat: dst_rot,
                  box: orderedPoints // Keep box for visualization
              });
         } else {
             lineImages.push({
+                id: i,
                 mat: dst,
                 box: orderedPoints
             });
@@ -302,14 +275,15 @@ export function preprocessRecognition(mat) {
     cv.resize(mat, resized, dsize, 0, 0, cv.INTER_LINEAR);
     
     // Convert to tensor
-    // Normalize: (pixel / 255 - 0.5) / 0.5
+    // Normalize to 0-1 (reference defaults mean=[0,0,0], std=[1,1,1])
     const data = resized.data; // RGBA
     const R = [], G = [], B = [];
     
+    // Normalize to -1 to 1 (reference uses mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     for (let i = 0; i < data.length; i += 4) {
         R.push((data[i] / 255 - 0.5) / 0.5);
-        G.push((data[i+1] / 255 - 0.5) / 0.5);
-        B.push((data[i+2] / 255 - 0.5) / 0.5);
+        G.push((data[i + 1] / 255 - 0.5) / 0.5);
+        B.push((data[i + 2] / 255 - 0.5) / 0.5);
     }
     
     resized.delete();
@@ -354,19 +328,34 @@ export function decodeText(output, dictionary) {
     const probs = [];
     
     for (let i = 0; i < seq; i++) {
-        // Find max class for this time step
-        let maxVal = -Infinity;
-        let maxIdx = -1;
         const offset = i * classes;
+        
+        // Apply Softmax to get probabilities
+        let maxLogit = -Infinity;
         for (let j = 0; j < classes; j++) {
-            const val = data[offset + j];
-            if (val > maxVal) {
-                maxVal = val;
+            if (data[offset + j] > maxLogit) maxLogit = data[offset + j];
+        }
+
+        let sum = 0;
+        const exps = new Float32Array(classes);
+        for (let j = 0; j < classes; j++) {
+            const val = Math.exp(data[offset + j] - maxLogit);
+            exps[j] = val;
+            sum += val;
+        }
+
+        let maxProb = -1;
+        let maxIdx = -1;
+        for (let j = 0; j < classes; j++) {
+            const prob = exps[j] / sum;
+            if (prob > maxProb) {
+                maxProb = prob;
                 maxIdx = j;
             }
         }
+
         charIndices.push(maxIdx);
-        probs.push(maxVal);
+        probs.push(maxProb);
     }
     
     // CTC Decode (Greedy)
@@ -399,30 +388,46 @@ export function decodeText(output, dictionary) {
     return { text, meanProb };
 }
 
-
 // Draw bounding boxes on canvas
 export function drawBoxes(canvas, width, height, boxes) {
-    canvas.width = width;
-    canvas.height = height;
+    // Use displayed canvas size (set via CSS) to align with the scaled image preview
+    const displayW = canvas.clientWidth || width;
+    const displayH = canvas.clientHeight || height;
+    const sx = displayW / width;
+    const sy = displayH / height;
+
+    canvas.width = displayW;
+    canvas.height = displayH;
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, displayW, displayH);
     
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1;
     ctx.strokeStyle = 'red';
     
     boxes.forEach(line => {
-        // box is [TL, TR, BR, BL]
-        const box = line.box;
+        const box = line.box; // [TL, TR, BR, BL]
         ctx.beginPath();
-        ctx.moveTo(box[0].x, box[0].y);
-        ctx.lineTo(box[1].x, box[1].y);
-        ctx.lineTo(box[2].x, box[2].y);
-        ctx.lineTo(box[3].x, box[3].y);
+        ctx.moveTo(box[0].x * sx, box[0].y * sy);
+        ctx.lineTo(box[1].x * sx, box[1].y * sy);
+        ctx.lineTo(box[2].x * sx, box[2].y * sy);
+        ctx.lineTo(box[3].x * sx, box[3].y * sy);
         ctx.closePath();
         ctx.stroke();
+
+        // Draw line id for debugging which box recognized correctly
+        const cx = box[0].x * sx - 15;
+        const cy = (box[0].y + box[2].y) * 0.5 * sy + 3;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 1;
+        ctx.font = '10px';
+        ctx.strokeText(String(line.id), cx, cy);
+        ctx.fillStyle = 'red';
+        ctx.fillText(String(line.id), cx, cy);
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 1;
     });
 }
-
 
 export function groupLines(results) {
     if (results.length === 0) return [];

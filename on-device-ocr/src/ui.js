@@ -34,10 +34,26 @@ export function updateModelDisplay(version) {
 }
 
 export function showImage(src) {
-    if (elements.imagePreview) {
-        elements.imagePreview.src = src;
-        elements.imagePreview.style.display = "block";
-    }
+    if (!elements.imagePreview) return;
+    elements.imagePreview.onload = () => {
+        const img = elements.imagePreview;
+        let scale = 1;
+        if (img.naturalWidth > 1280) scale = Math.min(scale, 0.5);
+        if (img.naturalHeight > 800) scale = Math.min(scale, 0.5);
+        const displayW = Math.round(img.naturalWidth * scale);
+        const displayH = Math.round(img.naturalHeight * scale);
+
+        img.style.width = `${displayW}px`;
+        img.style.height = `${displayH}px`;
+
+        // Keep overlay dimensions in sync with the displayed image size
+        if (elements.canvasOverlay) {
+            elements.canvasOverlay.style.width = `${displayW}px`;
+            elements.canvasOverlay.style.height = `${displayH}px`;
+        }
+    };
+    elements.imagePreview.src = src;
+    elements.imagePreview.style.display = "block";
 }
 
 export function clearResults() {

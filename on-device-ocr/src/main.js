@@ -220,20 +220,22 @@ async function runOCR(file) {
             const recOutput = await recSess.run(recFeeds);
             const recEnd = performance.now();
             const recInferenceTime = recEnd - recStart;
-            console.log(`Recognition inference time (line ${i + 1}): ${recInferenceTime.toFixed(2)}ms`);
+            console.log(`[line ${line.id}] Recognition inference time: ${recInferenceTime.toFixed(2)}ms`);
             totalRecInferenceTime += recInferenceTime;
             const recResult = recOutput[recSess.outputNames[0]];
             
             const { text, meanProb } = decodeText(recResult, dictionary);
             
-            if (meanProb > 0.3) { // Confidence threshold
+            // Debug: threshold lowered to see raw values
+            if (meanProb > -100) { 
                 results.push({
                     text: text,
                     mean: meanProb,
                     box: line.box
                 });
+                console.log(`[line ${line.id}]: [${meanProb.toFixed(4)}] ${text}`);
             } else {
-                console.log(`Low confidence line skipped: "${text}" (${meanProb.toFixed(2)})`);
+                console.log(`[line ${line.id}] Low confidence line skipped: "${text}" (${meanProb.toFixed(4)})`);
             }
             
             // Clean up Mat
