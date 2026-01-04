@@ -40,17 +40,6 @@ export function preprocessDetection(image, maxSize = 960) {
     const imageData = ctx.getImageData(0, 0, newWidth, newHeight);
     const { data } = imageData;
 
-    // Normalize: (pixel / 255 - mean) / std
-    // Default mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225] for ImageNet trained models
-    // But reference Detection.ts uses default mean=[0,0,0] std=[1,1,1] in imageToInput if not specified?
-    // Wait, Detection.ts says:
-    // const modelData = this.imageToInput(inputImage, {
-    //   // mean: [0.485, 0.456, 0.406],
-    //   // std: [0.229, 0.224, 0.225],
-    // })
-    // And ModelBase.ts default is mean=[0,0,0], std=[1,1,1].
-    // So it seems it just scales to 0-1.
-    
     // Normalize: reference uses defaults mean=[0,0,0], std=[1,1,1] -> just scale to 0-1.
     const R = [], G = [], B = [];
     for (let i = 0; i < data.length; i += 4) {
@@ -111,7 +100,6 @@ export function splitIntoLineImages(maskImageData, originalImage) {
     const minSize = 3;
     
     // Original image data for cropping
-    // We need to draw original image to canvas to get ImageData if it's an Image element
     const canvas = document.createElement('canvas');
     canvas.width = originalImage.width;
     canvas.height = originalImage.height;
@@ -126,14 +114,17 @@ export function splitIntoLineImages(maskImageData, originalImage) {
     for (let i = 0; i < contours.size(); i++) {
         const cnt = contours.get(i);
         const rect = cv.minAreaRect(cnt);
-        const box = cv.RotatedRect.points(rect);
         
         const side = Math.min(rect.size.width, rect.size.height);
-        if (side < minSize) continue;
+        if (side < minSize) {
+            cnt.delete();
+            continue;
+        }
 
         // Unclip logic approximation (expand box)
-        // Reference uses Clipper, we will just expand the size
-        const unclip_ratio = 1.5; // from reference
+        // Reference uses Clipper with fixed ratio 1.5
+        const unclip_ratio = 1.5;
+        
         // Area = w * h
         // Length = 2 * (w + h)
         // distance = area * ratio / length
@@ -147,12 +138,7 @@ export function splitIntoLineImages(maskImageData, originalImage) {
         const expandedSize = new cv.Size(rect.size.width + 2 * distance, rect.size.height + 2 * distance);
         const expandedRect = new cv.RotatedRect(rect.center, expandedSize, rect.angle);
         
-        let points = cv.RotatedRect.points(expandedRect);
-        
-        // Sort points clockwise
-        // ... (simplified, minAreaRect points are usually ordered but let's ensure)
-        // Actually cv.RotatedRect.points returns BL, TL, TR, BR order or similar.
-        // We need to map to destination points for perspective transform.
+        const points = cv.RotatedRect.points(expandedRect);
         
         // Scale points to original image size
         const scaledPoints = points.map(p => ({ x: p.x * rx, y: p.y * ry }));
@@ -173,18 +159,6 @@ export function splitIntoLineImages(maskImageData, originalImage) {
             Math.hypot(scaledPoints[3].x - scaledPoints[0].x, scaledPoints[3].y - scaledPoints[0].y)
         );
         
-        // Destination points
-        const dstPoints = [
-            0, cropHeight,
-            0, 0,
-            cropWidth, 0,
-            cropWidth, cropHeight
-        ];
-        // Note: minAreaRect points order depends on angle.
-        // We need to order them: BL, TL, TR, BR to match dstPoints?
-        // Or TL, TR, BR, BL?
-        // Let's use a robust ordering function.
-        
         const orderedPoints = orderPoints(scaledPoints);
         // ordered: TL, TR, BR, BL
         
@@ -203,17 +177,17 @@ export function splitIntoLineImages(maskImageData, originalImage) {
         ]);
         
         const M = cv.getPerspectiveTransform(srcTri, dstTri);
-        const dst = new cv.Mat();
+        let dst = new cv.Mat();
         cv.warpPerspective(srcMat, dst, M, new cv.Size(cropWidth, cropHeight), cv.INTER_CUBIC, cv.BORDER_REPLICATE, new cv.Scalar());
-        
+
+        // Reference does NOT trim the crop. Removing trimming to match reference.
+
         // Check if we need to rotate (if height > width * 1.5, likely vertical text treated as horizontal?)
         // Reference: if (dst_img_height / dst_img_width >= 1.5) rotate 90
         if (dst.rows / dst.cols >= 1.5) {
              const dst_rot = new cv.Mat();
              cv.rotate(dst, dst_rot, cv.ROTATE_90_CLOCKWISE);
              dst.delete();
-             // dst = dst_rot; // reassign
-             // Actually let's just push dst_rot
              lineImages.push({
                  id: i,
                  mat: dst_rot,
@@ -230,6 +204,7 @@ export function splitIntoLineImages(maskImageData, originalImage) {
         srcTri.delete();
         dstTri.delete();
         M.delete();
+        cnt.delete();
     }
     
     src.delete();
@@ -248,20 +223,19 @@ export function splitIntoLineImages(maskImageData, originalImage) {
 
 function orderPoints(pts) {
     // pts is array of {x, y}
-    // Sort by x to get left and right
-    pts.sort((a, b) => a.x - b.x);
-    const left = pts.slice(0, 2);
-    const right = pts.slice(2, 4);
+    // Sort by sum (x+y) to get TL and BR
+    const sortedSum = pts.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y));
+    const tl = sortedSum[0];
+    const br = sortedSum[3];
     
-    // Sort left by y to get TL, BL
-    left.sort((a, b) => a.y - b.y);
-    const tl = left[0];
-    const bl = left[1];
+    const others = pts.filter(p => p !== tl && p !== br);
     
-    // Sort right by y to get TR, BR
-    right.sort((a, b) => a.y - b.y);
-    const tr = right[0];
-    const br = right[1];
+    // Sort others by diff (y-x) to get TR and BL
+    // TR: large x, small y -> y-x is small
+    // BL: small x, large y -> y-x is large
+    const sortedDiff = others.slice().sort((a, b) => (a.y - a.x) - (b.y - b.x));
+    const tr = sortedDiff[0];
+    const bl = sortedDiff[1];
     
     return [tl, tr, br, bl];
 }
@@ -301,23 +275,6 @@ export function preprocessRecognition(mat) {
 export function decodeText(output, dictionary) {
     // output: 1 x seq_len x num_classes
     const dims = output.dims;
-    const seqLen = dims[2]; // Wait, dims are [batch, channels, seq_len]? No.
-    // PaddleOCR output is usually [batch, seq_len, num_classes] or [seq_len, batch, num_classes]
-    // Reference Recognition.ts:
-    // const predLen = data.dims[2]
-    // let ml = data.dims[0] - 1
-    // for (let l = 0; l < data.data.length; l += predLen * data.dims[1])
-    // This suggests dims are [batch, something, predLen]?
-    // Actually, let's look at Recognition.ts again.
-    // "const predLen = data.dims[2]"
-    // "for (let i = l; i < l + predLen * data.dims[1]; i += predLen)"
-    // This loop structure is confusing.
-    
-    // Standard PaddleOCR output shape is [Batch, Seq, Classes].
-    // If dims[2] is predLen (Classes?), then it matches.
-    // Let's assume [1, SeqLen, NumClasses].
-    
-    const batch = dims[0];
     const seq = dims[1];
     const classes = dims[2];
     
