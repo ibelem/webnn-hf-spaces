@@ -1,4 +1,5 @@
 import * as ort from "onnxruntime-web/webgpu";
+import clipper from 'js-clipper';
 ort.env.wasm.wasmPaths = "/onnxruntime-web-1-23-2-dists/";
 
 // Helper to load image from URL or File
@@ -77,6 +78,103 @@ export function postprocessDetection(output, width, height, threshold = 0.03) {
     return new ImageData(maskData, width, height);
 }
 
+
+// Helper functions for reference-matching workflow
+function getMiniBoxes(contour) {
+    const boundingBox = cv.minAreaRect(contour);
+    const points = Array.from(boxPoints(boundingBox.center, boundingBox.size, boundingBox.angle)).sort(
+        (a, b) => a[0] - b[0]
+    );
+
+    let index_1 = 0, index_2 = 1, index_3 = 2, index_4 = 3;
+    if (points[1][1] > points[0][1]) {
+        index_1 = 0;
+        index_4 = 1;
+    } else {
+        index_1 = 1;
+        index_4 = 0;
+    }
+    if (points[3][1] > points[2][1]) {
+        index_2 = 2;
+        index_3 = 3;
+    } else {
+        index_2 = 3;
+        index_3 = 2;
+    }
+
+    const box = [points[index_1], points[index_2], points[index_3], points[index_4]];
+    const side = Math.min(boundingBox.size.height, boundingBox.size.width);
+    return { points: box, sside: side };
+}
+
+function boxPoints(center, size, angle) {
+    const width = size.width;
+    const height = size.height;
+    const theta = (angle * Math.PI) / 180.0;
+    const cosTheta = Math.cos(theta);
+    const sinTheta = Math.sin(theta);
+    const cx = center.x;
+    const cy = center.y;
+    const dx = width * 0.5;
+    const dy = height * 0.5;
+    const rotatedPoints = [];
+    rotatedPoints.push([cx - dx * cosTheta + dy * sinTheta, cy - dx * sinTheta - dy * cosTheta]);
+    rotatedPoints.push([cx + dx * cosTheta + dy * sinTheta, cy + dx * sinTheta - dy * cosTheta]);
+    rotatedPoints.push([cx + dx * cosTheta - dy * sinTheta, cy + dx * sinTheta + dy * cosTheta]);
+    rotatedPoints.push([cx - dx * cosTheta - dy * sinTheta, cy - dx * sinTheta + dy * cosTheta]);
+    return rotatedPoints;
+}
+
+function polygonArea(polygon) {
+    let i = -1, n = polygon.length, a, b = polygon[n - 1], area = 0;
+    while (++i < n) {
+        a = b;
+        b = polygon[i];
+        area += a[1] * b[0] - a[0] * b[1];
+    }
+    return area / 2;
+}
+
+function polygonLength(polygon) {
+    let i = -1, n = polygon.length, b = polygon[n - 1], xa, ya, xb = b[0], yb = b[1], perimeter = 0;
+    while (++i < n) {
+        xa = xb;
+        ya = yb;
+        b = polygon[i];
+        xb = b[0];
+        yb = b[1];
+        xa -= xb;
+        ya -= yb;
+        perimeter += Math.hypot(xa, ya);
+    }
+    return perimeter;
+}
+
+function unclip(box, unclip_ratio = 1.5) {
+    const area = Math.abs(polygonArea(box));
+    const length = polygonLength(box);
+    const distance = (area * unclip_ratio) / length;
+    
+    const tmpArr = [];
+    box.forEach((item) => {
+        tmpArr.push({ X: item[0], Y: item[1] });
+    });
+    
+    const offset = new clipper.ClipperOffset();
+    offset.AddPath(tmpArr, clipper.JoinType.jtRound, clipper.EndType.etClosedPolygon);
+    const expanded = [];
+    offset.Execute(expanded, distance);
+    
+    let expandedArr = [];
+    if (expanded[0]) {
+        expanded[0].forEach((item) => {
+            expandedArr.push([item.X, item.Y]);
+        });
+    }
+    
+    return expandedArr.flat();
+}
+
 // Split into line images using OpenCV
 export function splitIntoLineImages(maskImageData, originalImage) {
     if (typeof cv === 'undefined') {
@@ -113,54 +211,53 @@ export function splitIntoLineImages(maskImageData, originalImage) {
 
     for (let i = 0; i < contours.size(); i++) {
         const cnt = contours.get(i);
-        const rect = cv.minAreaRect(cnt);
         
-        const side = Math.min(rect.size.width, rect.size.height);
-        if (side < minSize) {
+        // REFERENCE WORKFLOW: Use getMiniBoxes before and after unclip
+        const miniBoxResult = getMiniBoxes(cnt);
+        if (miniBoxResult.sside < minSize) {
             cnt.delete();
             continue;
         }
 
-        // Unclip logic approximation (expand box)
-        // Reference uses Clipper with fixed ratio 1.5
-        const unclip_ratio = 1.5;
+        // Unclip using js-clipper
+        const clipBox = unclip(miniBoxResult.points);
         
-        // Area = w * h
-        // Length = 2 * (w + h)
-        // distance = area * ratio / length
-        const rw = rect.size.width;
-        const rh = rect.size.height;
-        const area = rw * rh;
-        const length = 2 * (rw + rh);
-        const distance = (area * unclip_ratio) / length;
+        // Create Mat from unclipped points and call getMiniBoxes again
+        const boxMat = cv.matFromArray(clipBox.length / 2, 1, cv.CV_32SC2, clipBox);
+        const resultObj = getMiniBoxes(boxMat);
+        const box = resultObj.points;
+        boxMat.delete();
         
-        // Expand rect by distance
-        const expandedSize = new cv.Size(rect.size.width + 2 * distance, rect.size.height + 2 * distance);
-        const expandedRect = new cv.RotatedRect(rect.center, expandedSize, rect.angle);
-        
-        const points = cv.RotatedRect.points(expandedRect);
+        if (resultObj.sside < minSize + 2) {
+            cnt.delete();
+            continue;
+        }
         
         // Scale points to original image size
-        const scaledPoints = points.map(p => ({ x: p.x * rx, y: p.y * ry }));
+        for (let j = 0; j < box.length; j++) {
+            box[j][0] *= rx;
+            box[j][1] *= ry;
+        }
         
-        // Clip points to image boundaries to avoid sampling outside
-        scaledPoints.forEach(p => {
-            p.x = Math.max(0, Math.min(p.x, originalImage.width));
-            p.y = Math.max(0, Math.min(p.y, originalImage.height));
-        });
+        // Convert to {x, y} format and clip to boundaries
+        const scaledPoints = box.map(p => ({
+            x: Math.max(0, Math.min(Math.round(p[0]), originalImage.width)),
+            y: Math.max(0, Math.min(Math.round(p[1]), originalImage.height))
+        }));
 
-        // Crop and warp
-        const cropWidth = Math.max(
-            Math.hypot(scaledPoints[0].x - scaledPoints[1].x, scaledPoints[0].y - scaledPoints[1].y),
-            Math.hypot(scaledPoints[2].x - scaledPoints[3].x, scaledPoints[2].y - scaledPoints[3].y)
-        );
-        const cropHeight = Math.max(
-            Math.hypot(scaledPoints[1].x - scaledPoints[2].x, scaledPoints[1].y - scaledPoints[2].y),
-            Math.hypot(scaledPoints[3].x - scaledPoints[0].x, scaledPoints[3].y - scaledPoints[0].y)
-        );
-        
         const orderedPoints = orderPoints(scaledPoints);
         // ordered: TL, TR, BR, BL
+        
+        // Crop and warp - calculate dimensions
+        const cropWidth = Math.max(
+            Math.hypot(orderedPoints[0].x - orderedPoints[1].x, orderedPoints[0].y - orderedPoints[1].y),
+            Math.hypot(orderedPoints[2].x - orderedPoints[3].x, orderedPoints[2].y - orderedPoints[3].y)
+        );
+        const cropHeight = Math.max(
+            Math.hypot(orderedPoints[1].x - orderedPoints[2].x, orderedPoints[1].y - orderedPoints[2].y),
+            Math.hypot(orderedPoints[3].x - orderedPoints[0].x, orderedPoints[3].y - orderedPoints[0].y)
+        );
+        
         
         const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
             orderedPoints[0].x, orderedPoints[0].y,
@@ -181,12 +278,19 @@ export function splitIntoLineImages(maskImageData, originalImage) {
         cv.warpPerspective(srcMat, dst, M, new cv.Size(cropWidth, cropHeight), cv.INTER_CUBIC, cv.BORDER_REPLICATE, new cv.Scalar());
 
         // Reference does NOT trim the crop. Removing trimming to match reference.
-
         // Check if we need to rotate (if height > width * 1.5, likely vertical text treated as horizontal?)
         // Reference: if (dst_img_height / dst_img_width >= 1.5) rotate 90
-        if (dst.rows / dst.cols >= 1.5) {
+        // CRITICAL: Use cv.warpAffine with getRotationMatrix2D, NOT cv.rotate (reference implementation)
+        const dst_img_height = dst.rows;
+        const dst_img_width = dst.cols;
+        
+        if (dst_img_height / dst_img_width >= 1.5) {
              const dst_rot = new cv.Mat();
-             cv.rotate(dst, dst_rot, cv.ROTATE_90_CLOCKWISE);
+             const dsize_rot = new cv.Size(dst.rows, dst.cols);
+             const center = new cv.Point(dst.cols / 2, dst.cols / 2);
+             const rotM = cv.getRotationMatrix2D(center, 90, 1);
+             cv.warpAffine(dst, dst_rot, rotM, dsize_rot, cv.INTER_CUBIC, cv.BORDER_REPLICATE, new cv.Scalar());
+             rotM.delete();
              dst.delete();
              lineImages.push({
                  id: i,
@@ -222,22 +326,22 @@ export function splitIntoLineImages(maskImageData, originalImage) {
 }
 
 function orderPoints(pts) {
-    // pts is array of {x, y}
-    // Sort by sum (x+y) to get TL and BR
-    const sortedSum = pts.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y));
-    const tl = sortedSum[0];
-    const br = sortedSum[3];
+    // Match reference's orderPointsClockwise - more robust algorithm
+    // Convert to array format for processing
+    const points = pts.map(p => [p.x, p.y]);
     
-    const others = pts.filter(p => p !== tl && p !== br);
+    const rect = [[0, 0], [0, 0], [0, 0], [0, 0]];
+    const s = points.map((pt) => pt[0] + pt[1]);
+    rect[0] = points[s.indexOf(Math.min(...s))]; // TL (smallest sum)
+    rect[2] = points[s.indexOf(Math.max(...s))]; // BR (largest sum)
     
-    // Sort others by diff (y-x) to get TR and BL
-    // TR: large x, small y -> y-x is small
-    // BL: small x, large y -> y-x is large
-    const sortedDiff = others.slice().sort((a, b) => (a.y - a.x) - (b.y - b.x));
-    const tr = sortedDiff[0];
-    const bl = sortedDiff[1];
+    const tmp = points.filter((pt) => pt !== rect[0] && pt !== rect[2]);
+    const diff = tmp[1].map((e, i) => e - tmp[0][i]);
+    rect[1] = tmp[diff.indexOf(Math.min(...diff))]; // TR
+    rect[3] = tmp[diff.indexOf(Math.max(...diff))]; // BL
     
-    return [tl, tr, br, bl];
+    // Convert back to {x, y} format
+    return rect.map(p => ({ x: p[0], y: p[1] }));
 }
 
 // Preprocess line image for Recognition
