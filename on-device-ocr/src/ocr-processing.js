@@ -24,7 +24,7 @@ export function preprocessDetection(image, maxSize = 960) {
     let width = image.width;
     let height = image.height;
 
-    // Resize logic from reference
+    // Resize logic
     if (maxSize && Math.max(width, height) > maxSize) {
         const ratio = width > height ? maxSize / width : maxSize / height;
         width = width * ratio;
@@ -41,7 +41,7 @@ export function preprocessDetection(image, maxSize = 960) {
     const imageData = ctx.getImageData(0, 0, newWidth, newHeight);
     const { data } = imageData;
 
-    // Normalize: reference uses defaults mean=[0,0,0], std=[1,1,1] -> just scale to 0-1.
+    // Normalize: uses defaults mean=[0,0,0], std=[1,1,1] -> just scale to 0-1.
     const R = [], G = [], B = [];
     for (let i = 0; i < data.length; i += 4) {
         R.push(data[i] / 255);
@@ -79,7 +79,7 @@ export function postprocessDetection(output, width, height, threshold = 0.03) {
 }
 
 
-// Helper functions for reference-matching workflow
+// Helper functions
 function getMiniBoxes(contour) {
     const boundingBox = cv.minAreaRect(contour);
     const points = Array.from(boxPoints(boundingBox.center, boundingBox.size, boundingBox.angle)).sort(
@@ -212,7 +212,7 @@ export function splitIntoLineImages(maskImageData, originalImage) {
     for (let i = 0; i < contours.size(); i++) {
         const cnt = contours.get(i);
         
-        // REFERENCE WORKFLOW: Use getMiniBoxes before and after unclip
+        // Use getMiniBoxes before and after unclip
         const miniBoxResult = getMiniBoxes(cnt);
         if (miniBoxResult.sside < minSize) {
             cnt.delete();
@@ -277,10 +277,9 @@ export function splitIntoLineImages(maskImageData, originalImage) {
         let dst = new cv.Mat();
         cv.warpPerspective(srcMat, dst, M, new cv.Size(cropWidth, cropHeight), cv.INTER_CUBIC, cv.BORDER_REPLICATE, new cv.Scalar());
 
-        // Reference does NOT trim the crop. Removing trimming to match reference.
         // Check if we need to rotate (if height > width * 1.5, likely vertical text treated as horizontal?)
-        // Reference: if (dst_img_height / dst_img_width >= 1.5) rotate 90
-        // CRITICAL: Use cv.warpAffine with getRotationMatrix2D, NOT cv.rotate (reference implementation)
+        // if (dst_img_height / dst_img_width >= 1.5) rotate 90
+        // CRITICAL: Use cv.warpAffine with getRotationMatrix2D, NOT cv.rotate
         const dst_img_height = dst.rows;
         const dst_img_width = dst.cols;
         
@@ -326,7 +325,7 @@ export function splitIntoLineImages(maskImageData, originalImage) {
 }
 
 function orderPoints(pts) {
-    // Match reference's orderPointsClockwise - more robust algorithm
+    // orderPointsClockwise - more robust algorithm
     // Convert to array format for processing
     const points = pts.map(p => [p.x, p.y]);
     
@@ -355,7 +354,7 @@ export function preprocessRecognition(mat) {
     cv.resize(mat, resized, dsize, 0, 0, cv.INTER_LINEAR);
     
     // Convert to tensor
-    // Normalize to 0-1 (reference defaults mean=[0,0,0], std=[1,1,1])
+    // Normalize to 0-1 (defaults mean=[0,0,0], std=[1,1,1])
     const data = resized.data; // RGBA
     const R = [], G = [], B = [];
     
@@ -367,10 +366,7 @@ export function preprocessRecognition(mat) {
     
     resized.delete();
     
-    // BGR planar? Reference Recognition.ts uses imageToInput which uses ModelBase default.
-    // Wait, Recognition.ts calls imageToInput with mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5].
     // And ModelBase uses BGR.
-    
     const input = Float32Array.from([...B, ...G, ...R]);
     return new ort.Tensor('float32', input, [1, 3, h, w]);
 }
@@ -389,7 +385,7 @@ export function decodeText(output, dictionary) {
     const charIndices = [];
     const probs = [];
     
-    // Reference implementation uses raw max logit per timestep (no softmax).
+    // uses raw max logit per timestep (no softmax).
     // That means meanProb is a mean logit, not a 0-1 probability.
     for (let i = 0; i < seq; i++) {
         const offset = i * classes;
