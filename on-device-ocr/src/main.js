@@ -68,46 +68,92 @@ if (currentBackend === "wasm") {
 
 // Initialize
 async function init() {
-    ui.updateStatus("Loading OpenCV...");
-    // Wait for OpenCV
-    while (typeof cv === "undefined") {
-        await new Promise(r => setTimeout(r, 100));
-    }
-    ui.updateStatus("OpenCV Loaded. Loading Dictionary...");
-    
-    // Load Dictionary
-    const response = await fetch(MODELS.dic);
-    const text = await response.text();
-    dictionary = text.split("\n");
-    dictionary.push(" "); 
-    
-    ui.updateBackendDisplay(currentBackendLabel);
-    
-    const shouldAutoRun = imageParam && params.hasModelParam && params.hasDeviceParam;
+    try {
+        ui.updateStatus("Loading OpenCV...");
 
-    if (shouldAutoRun) {
-        ui.updateStatus("Ready. Processing URL image...");
-    } else {
-        ui.updateStatus("Ready. Upload image.");
-    }
-    
-    ui.setupUI({
-        onUpload: async (file) => {
-            await runOCR(file);
-        },
-        onExampleClick: async () => {
-            await runOCR("https://ibelem.github.io/webnn-hf-spaces/on-device-ocr/assets/invoice.jpg");
-        },
-        onModelChange: (newVersion) => {
-            const url = new URL(window.location.href);
-            url.searchParams.set("model", newVersion);
-            window.location.href = url.toString();
-        },
-        modelVersion: modelVersion
-    });
+        // Wait for OpenCV with timeout
+        const openCVTimeout = 30000; // 30 seconds
+        const startTime = Date.now();
+        while (typeof cv === "undefined") {
+            if (Date.now() - startTime > openCVTimeout) {
+                throw new Error("OpenCV loading timeout. Please refresh the page.");
+            }
+            await new Promise(r => setTimeout(r, 100));
+        }
 
-    if (shouldAutoRun) {
-        await runOCR(imageParam);
+        ui.updateStatus("OpenCV Loaded. Loading Dictionary...");
+
+        // Load Dictionary with retry logic
+        let retries = 3;
+        let lastError;
+        while (retries > 0) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+                const response = await fetch(MODELS.dic, {
+                    signal: controller.signal,
+                    cache: "default"
+                });
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    throw new Error(`Failed to load dictionary: ${response.status} ${response.statusText}`);
+                }
+                
+                const text = await response.text();
+                dictionary = text.split("\n");
+                dictionary.push(" ");
+                break; // Success, exit retry loop
+            } catch (error) {
+                lastError = error;
+                retries--;
+                console.error(`Dictionary loading attempt failed (${3 - retries}/3):`, error);
+                if (retries > 0) {
+                    ui.updateStatus(`Retrying dictionary load... (${3 - retries}/3)`);
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            }
+        }
+        
+        if (dictionary.length === 0) {
+            throw lastError || new Error("Failed to load dictionary after 3 attempts. Please check your network connection.");
+        }
+
+        ui.updateBackendDisplay(currentBackendLabel);
+
+        const shouldAutoRun = imageParam && params.hasModelParam && params.hasDeviceParam;
+
+        if (shouldAutoRun) {
+            ui.updateStatus("Ready. Processing URL image...");
+        } else {
+            ui.updateStatus("Ready. Upload image.");
+        }
+
+        ui.setupUI({
+            onUpload: async (file) => {
+                await runOCR(file);
+            },
+            onExampleClick: async () => {
+                await runOCR("https://ibelem.github.io/webnn-hf-spaces/on-device-ocr/assets/invoice.jpg");
+            },
+            onModelChange: (newVersion) => {
+                const url = new URL(window.location.href);
+                url.searchParams.set("model", newVersion);
+                window.location.href = url.toString();
+            },
+            modelVersion: modelVersion
+        });
+
+        if (shouldAutoRun) {
+            await runOCR(imageParam);
+        }
+    } catch (error) {
+        console.error("Initialization error:", error);
+        ui.updateStatus(`Error: ${error.message}. Please check your network connection and refresh.`);
+        // Show device links so user can try different backend
+        const deviceLinks = document.querySelector('.device-links');
+        if (deviceLinks) deviceLinks.style.display = 'block';
     }
 }
 

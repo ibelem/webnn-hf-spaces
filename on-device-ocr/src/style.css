@@ -96,9 +96,17 @@ a:hover, #example-link:hover {
 }
 
 .device-links {
-  margin-bottom: 1rem;
   display: block;
   text-align: center;
+}
+
+footer {
+    margin: 0 0 1rem 0;
+    font-size: 0.85rem;
+}
+
+#copyright {
+  margin-bottom: 1rem;
 }
 
 #model-versions {
@@ -276,6 +284,10 @@ footer svg {
   }
 
   .device-links {
+    font-size: 0.75rem;
+  }
+
+  footer {
     font-size: 0.75rem;
   }
 

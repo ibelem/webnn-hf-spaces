@@ -15,15 +15,17 @@ export const getHuggingFaceDomain = async () => {
         const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
 
         try {
+            console.log(`Testing domain: ${domain}...`);
             const response = await fetch(`https://${domain}${testPath}`, {
                 method: "HEAD", // Use HEAD to download headers only (lighter than GET)
                 signal: controller.signal,
                 cache: "no-store",
             });
             clearTimeout(timeoutId);
+            console.log(`${domain} is ${response.ok ? 'reachable' : 'unreachable'}`);
             return response.ok;
         } catch (error) {
-            console.log(`Error reaching ${domain}:`, error);
+            console.log(`Error reaching ${domain}:`, error.name);
             clearTimeout(timeoutId);
             return false;
         }
@@ -33,6 +35,7 @@ export const getHuggingFaceDomain = async () => {
     const isMainReachable = await checkDomain(mainDomain);
     if (isMainReachable) {
         cachedHfDomain = mainDomain;
+        console.log(`Using domain: ${mainDomain}`);
         return mainDomain;
     }
 
@@ -45,6 +48,7 @@ export const getHuggingFaceDomain = async () => {
     }
 
     // 3. Default fallback
+    console.log(`Both domains failed, defaulting to: ${mainDomain}`);
     cachedHfDomain = mainDomain;
     return mainDomain;
 };
