@@ -13,6 +13,8 @@ body {
 body {
   padding: 1rem;
   font-size: 1rem;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 input {
@@ -181,4 +183,97 @@ svg {
   align-items: stretch;
   justify-content: center;
   justify-items: stretch;
+}
+
+/* Responsive Design - Mobile First */
+@media (max-width: 768px) {
+  body {
+    padding: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  h1 {
+    font-size: 1.2rem;
+    line-height: 1.4;
+    margin-bottom: 0.5rem;
+  }
+
+  #ocr {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  #container {
+    min-height: 200px;
+  }
+
+  #image-preview {
+    max-width: 100%;
+    height: auto;
+  }
+
+  #result-container {
+    min-width: auto;
+    width: 100%;
+    padding: 0.5rem;
+    font-size: 11px;
+  }
+
+  .g2 {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+    margin: 0.5rem 0;
+  }
+
+  .controls {
+    padding: 0.75rem;
+  }
+
+  #upload-block {
+    flex-direction: column;
+    gap: 0.25rem;
+    text-align: center;
+  }
+
+  #model-versions {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  #performance > div {
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.5rem;
+    padding: 0.25rem;
+    font-size: 0.85rem;
+  }
+
+  .device-links {
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+}
+
+@media (max-width: 480px) {
+  body {
+    padding: 1rem 0.5rem;
+  }
+
+  h1 {
+    font-size: 1rem;
+  }
+
+  #performance > div {
+    font-size: 0.75rem;
+    gap: 0.25rem;
+    padding: 0.25rem;
+  }
+
+  .device-links {
+    font-size: 0.75rem;
+  }
+
+  #upload-button svg {
+    width: 20px;
+    height: 20px;
+  }
 }
