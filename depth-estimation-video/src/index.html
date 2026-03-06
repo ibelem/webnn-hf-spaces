@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Chrome Origin Trial Token / webnn-depth-estimation-video.static.hf.space -->
+    <meta http-equiv="origin-trial" content="AgvS0xFhcFGQZyiHbVEd6dbzWNAt73qA5xl0aZVATG8gN1gzqeD5tmk9MjhMylNgL6M/UV/014CL+lVuP1Ag7wYAAACFeyJvcmlnaW4iOiJodHRwczovL3dlYm5uLWRlcHRoLWVzdGltYXRpb24tdmlkZW8uc3RhdGljLmhmLnNwYWNlOjQ0MyIsImZlYXR1cmUiOiJXZWJNYWNoaW5lTGVhcm5pbmdOZXVyYWxOZXR3b3JrIiwiZXhwaXJ5IjoxNzgzOTg3MjAwfQ==">
+    <!-- Edge Origin Trial Token / webnn-depth-estimation-video.static.hf.space -->
+    <meta http-equiv="origin-trial" content="A/Z8MLhh/M6Dd3vVXdJUpUeqrqDevYAdMmYttUb7IsLzRYWtL5+nreZn683FdYi8lI2wgK35p2wySE0u89yGJ3QAAACFeyJvcmlnaW4iOiJodHRwczovL3dlYm5uLWRlcHRoLWVzdGltYXRpb24tdmlkZW8uc3RhdGljLmhmLnNwYWNlOjQ0MyIsImZlYXR1cmUiOiJXZWJNYWNoaW5lTGVhcm5pbmdOZXVyYWxOZXR3b3JrIiwiZXhwaXJ5IjoxNzc0NDk4NzA2fQ==">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Transformers.js | Real-time depth estimation</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+
+  <body>
+    <h1>
+      Real-time depth estimation w/
+      <a
+        href="https://huggingface.co/onnx-community/depth-anything-v2-small"
+        target="_blank"
+        >Depth Anything V2</a
+      >
+    </h1>
+    <h3>
+      Runs locally in your browser, powered by
+      <a href="https://github.com/huggingface/transformers.js" target="_blank"
+        >🤗 Transformers.js</a
+      > x <label id="device"></label>
+    </h3>
+    <div id="container">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="output-canvas"></canvas>
+    </div>
+    <div id="controls">
+      <div
+        title="Read frames from your webcam and process them at a lower size (lower = faster)"
+      >
+        <label>Stream scale</label>
+        (<label id="scale-value">0.4</label>)
+        <br />
+        <input
+          id="scale"
+          type="range"
+          min="0.1"
+          max="1"
+          step="0.1"
+          value="0.4"
+          disabled
+        />
+      </div>
+      <div id="size-container" title="The width of the image (lower = faster)">
+        <label>Image size</label>
+        (<label id="size-value">504</label>px)
+        <br />
+        <input
+          id="size"
+          type="range"
+          min="140"
+          max="840"
+          step="14"
+          value="504"
+          disabled
+        />
+      </div>
+    </div>
+    <label id="status">Loading model...</label>
+    <div>
+      <a href="?device=webnn-gpu">WebNN GPU</a> · <a href="?device=webnn-npu">WebNN NPU</a>
+    </div>
+    <div id="versions">
+      @huggingface/transformers: 3.7.3 · onnxruntime-web: 1.22.0-dev.20250409-89f8206ba4
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
