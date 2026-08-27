@@ -147,7 +147,7 @@ if (remoteHost !== 'huggingface.co') {
 }
 
 // Load model and processor
-const model_id = "onnx-community/depth-anything-v2-small";
+const model_id = "webnn/depth-anything-v2-small-4d";
 
 let model;
 try {
